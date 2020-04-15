@@ -1,5 +1,6 @@
 //! Types for representing runtime Protobuf values.
 use std::collections;
+use std::convert::TryInto;
 
 use protobuf;
 use protobuf::stream::wire_format;
@@ -24,6 +25,18 @@ pub enum Value {
     F32(f32),
     /// A 64-bit floating point value.
     F64(f64),
+    /// A 64-bit signed integer that is more efficent for signed values.
+    S64(i64),
+    /// A 32-bit signed integer that is more efficent for signed values.
+    S32(i32),
+    /// A 64-bit fixed length unsigned integer.
+    Fixed64(u64),
+    /// A 32-bit fixed length unsigned integer.
+    Fixed32(u32),
+    /// A 64-bit fixed length signed integer.
+    SFixed64(i64),
+    /// A 32-bit fixed length signed integer.
+    SFixed32(i32),
     /// A byte vector.
     Bytes(Vec<u8>),
     /// A string.
@@ -164,14 +177,14 @@ impl Field {
             Bool => ps!(WireTypeVarint, Value::Bool, I::read_bool),
             Int32 => ps!(WireTypeVarint, Value::I32, I::read_int32),
             Int64 => ps!(WireTypeVarint, Value::I64, I::read_int64),
-            SInt32 => ps!(WireTypeVarint, Value::I32, I::read_sint32),
-            SInt64 => ps!(WireTypeVarint, Value::I64, I::read_sint64),
+            SInt32 => ps!(WireTypeVarint, Value::S32, I::read_sint32),
+            SInt64 => ps!(WireTypeVarint, Value::S64, I::read_sint64),
             UInt32 => ps!(WireTypeVarint, Value::U32, I::read_uint32),
             UInt64 => ps!(WireTypeVarint, Value::U64, I::read_uint64),
-            Fixed32 => ps!(WireTypeFixed32, 4, Value::U32, I::read_fixed32),
-            Fixed64 => ps!(WireTypeFixed64, 8, Value::U64, I::read_fixed64),
-            SFixed32 => ps!(WireTypeFixed32, 4, Value::I32, I::read_sfixed32),
-            SFixed64 => ps!(WireTypeFixed64, 8, Value::I64, I::read_sfixed64),
+            Fixed32 => ps!(WireTypeFixed32, 4, Value::Fixed32, I::read_fixed32),
+            Fixed64 => ps!(WireTypeFixed64, 8, Value::Fixed64, I::read_fixed64),
+            SFixed32 => ps!(WireTypeFixed32, 4, Value::SFixed32, I::read_sfixed32),
+            SFixed64 => ps!(WireTypeFixed64, 8, Value::SFixed64, I::read_sfixed64),
             Float => ps!(WireTypeFixed32, 4, Value::F32, I::read_float),
             Double => ps!(WireTypeFixed64, 8, Value::F64, I::read_double),
             Bytes => ss!(WireTypeLengthDelimited, Value::Bytes, I::read_bytes),
@@ -298,5 +311,95 @@ impl Field {
             Field::Singular(ref mut s) => *s = Some(value),
             Field::Repeated(ref mut r) => r.push(value),
         }
+    }
+}
+
+impl Message {
+    /// Writes the message to a [`protobuf::CodedOutputStream`] without a tag
+    pub fn write_to_raw(
+        self,
+        stream: &mut protobuf::CodedOutputStream,
+    ) -> protobuf::error::ProtobufResult<()> {
+        for (tag, field) in self.fields.into_iter() {
+            let tag: u32 = tag.try_into().map_err(|_| {
+                protobuf::error::ProtobufError::WireError(protobuf::error::WireError::IncorrectTag(
+                    0,
+                ))
+            })?;
+            match field {
+                Field::Singular(Some(value)) => {
+                    value.write_to(tag, stream)?;
+                }
+                Field::Singular(None) => {}
+                Field::Repeated(values) => {
+                    for value in values.into_iter() {
+                        value.write_to(tag, stream)?;
+                        //TODO: Implement packed values here
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Serializes the message into a vetor of bytes
+    pub fn into_vec(self) -> protobuf::error::ProtobufResult<Vec<u8>> {
+        let mut buf = Vec::new();
+        let mut stream = protobuf::CodedOutputStream::vec(&mut buf);
+        self.write_to_raw(&mut stream)?;
+        stream.flush()?;
+        Ok(buf)
+    }
+}
+
+impl Value {
+    fn write_to(
+        self,
+        tag: u32,
+        stream: &mut protobuf::CodedOutputStream,
+    ) -> protobuf::error::ProtobufResult<()> {
+        match self {
+            Value::Bool(_)
+            | Value::I32(_)
+            | Value::I64(_)
+            | Value::U32(_)
+            | Value::U64(_)
+            | Value::Enum(_) => stream.write_tag(tag, wire_format::WireType::WireTypeVarint)?,
+            Value::F64(_) | Value::S64(_) | Value::Fixed64(_) | Value::SFixed64(_) => {
+                stream.write_tag(tag, wire_format::WireType::WireTypeFixed64)?
+            }
+            Value::F32(_) | Value::S32(_) | Value::Fixed32(_) | Value::SFixed32(_) => {
+                stream.write_tag(tag, wire_format::WireType::WireTypeFixed32)?
+            }
+            Value::String(_) | Value::Message(_) | Value::Bytes(_) => {
+                stream.write_tag(tag, wire_format::WireTypeLengthDelimited)?
+            }
+        };
+        self.write_to_raw(stream)
+    }
+    fn write_to_raw(
+        self,
+        stream: &mut protobuf::CodedOutputStream,
+    ) -> protobuf::error::ProtobufResult<()> {
+        match self {
+            Value::Bool(b) => stream.write_bool_no_tag(b)?,
+            Value::I32(i) => stream.write_int32_no_tag(i)?,
+            Value::I64(i) => stream.write_int64_no_tag(i)?,
+            Value::U64(i) => stream.write_uint64_no_tag(i)?,
+            Value::U32(i) => stream.write_uint32_no_tag(i)?,
+            Value::S64(i) => stream.write_sint64_no_tag(i)?,
+            Value::S32(i) => stream.write_sint32_no_tag(i)?,
+            Value::Fixed64(i) => stream.write_fixed64_no_tag(i)?,
+            Value::Fixed32(i) => stream.write_fixed32_no_tag(i)?,
+            Value::SFixed64(i) => stream.write_sfixed64_no_tag(i)?,
+            Value::SFixed32(i) => stream.write_sfixed32_no_tag(i)?,
+            Value::String(s) => stream.write_string_no_tag(&s)?,
+            Value::F32(f) => stream.write_float_no_tag(f)?,
+            Value::F64(f) => stream.write_double_no_tag(f)?,
+            Value::Bytes(b) => stream.write_raw_bytes(&b)?,
+            Value::Enum(e) => stream.write_enum_no_tag(e)?,
+            Value::Message(m) => m.write_to_raw(stream)?,
+        };
+        Ok(())
     }
 }
