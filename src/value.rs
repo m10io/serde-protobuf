@@ -54,6 +54,8 @@ pub struct Message {
     pub fields: collections::BTreeMap<i32, Field>,
     /// Unknown fields on the message.
     pub unknown: protobuf::UnknownFields,
+    /// The message descriptor for this message
+    pub descriptor: descriptor::MessageDescriptor,
 }
 
 /// A message field value.
@@ -68,13 +70,14 @@ pub enum Field {
 impl Message {
     /// Creates a message given a Protobuf descriptor.
     #[inline]
-    pub fn new(message: &descriptor::MessageDescriptor) -> Message {
+    pub fn new(message: descriptor::MessageDescriptor) -> Message {
         let mut m = Message {
             fields: collections::BTreeMap::new(),
             unknown: protobuf::UnknownFields::new(),
+            descriptor: message,
         };
 
-        for field in message.fields() {
+        for field in m.descriptor.fields() {
             m.fields.insert(
                 field.number(),
                 if field.is_repeated() {
@@ -286,10 +289,10 @@ impl Field {
                     if let Some(Value::Message(m)) = o.take() {
                         m
                     } else {
-                        Message::new(message)
+                        Message::new(message.clone())
                     }
                 }
-                _ => Message::new(message),
+                _ => Message::new(message.clone()),
             };
 
             let old_limit = input.push_limit(len)?;

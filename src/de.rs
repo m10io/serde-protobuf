@@ -166,7 +166,7 @@ impl<'de, 'b> serde::Deserializer<'de> for &'b mut Deserializer<'de> {
     where
         V: serde::de::Visitor<'de>,
     {
-        let mut message = value::Message::new(self.descriptor);
+        let mut message = value::Message::new(self.descriptor.clone());
         message.merge_from(self.descriptors, self.descriptor, &mut self.input)?;
         visitor.visit_map(MessageVisitor::new(
             self.descriptors,

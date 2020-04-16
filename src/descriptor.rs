@@ -156,7 +156,7 @@ struct EnumValueId(usize);
 struct FieldId(usize);
 
 /// A registry for any number of protocol buffer descriptors.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Descriptors {
     // All found descriptors
     messages: Vec<MessageDescriptor>,
@@ -169,7 +169,7 @@ pub struct Descriptors {
 
 /// A descriptor for a single protocol buffer message type.
 // TODO: Support oneof?
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct MessageDescriptor {
     name: String,
 
@@ -182,7 +182,7 @@ pub struct MessageDescriptor {
 }
 
 /// A descriptor for a single protocol buffer enum type.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EnumDescriptor {
     name: String,
 
@@ -195,7 +195,7 @@ pub struct EnumDescriptor {
 }
 
 /// A descriptor for a single protocol buffer enum value.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EnumValueDescriptor {
     name: String,
     number: i32,
@@ -263,7 +263,7 @@ pub enum FieldType<'a> {
 ///
 /// The type owns all of its data, and can refer to an internally tracked ID for resolved type
 /// references.  It's by design not possible to construct those IDs from outside this module.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub enum InternalFieldType {
     /// A message that is yet to be resolved.
     UnresolvedMessage(String),
@@ -308,7 +308,7 @@ pub enum InternalFieldType {
 }
 
 /// A descriptor for a single protocol buffer message field.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FieldDescriptor {
     name: String,
     number: i32,
