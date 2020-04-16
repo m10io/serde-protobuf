@@ -170,7 +170,7 @@ pub struct Descriptors {
 
 /// A descriptor for a single protocol buffer message type.
 // TODO: Support oneof?
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MessageDescriptor {
     name: String,
 
@@ -309,7 +309,7 @@ pub enum InternalFieldType {
 }
 
 /// A descriptor for a single protocol buffer message field.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FieldDescriptor {
     name: String,
     number: i32,

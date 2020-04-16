@@ -9,7 +9,7 @@ use crate::descriptor;
 use crate::error;
 
 /// Any protobuf value.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     /// A boolean value.
     Bool(bool),
@@ -48,7 +48,7 @@ pub enum Value {
 }
 
 /// A message value.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Message {
     /// Known fields on the message.
     pub fields: collections::BTreeMap<i32, Field>,
@@ -59,7 +59,7 @@ pub struct Message {
 }
 
 /// A message field value.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Field {
     /// A field with a single value.
     Singular(Option<Value>),
