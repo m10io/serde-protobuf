@@ -329,18 +329,7 @@ impl Message {
                     0,
                 ))
             })?;
-            match field {
-                Field::Singular(Some(value)) => {
-                    value.write_to(tag, stream)?;
-                }
-                Field::Singular(None) => {}
-                Field::Repeated(values) => {
-                    for value in values.into_iter() {
-                        value.write_to(tag, stream)?;
-                        //TODO: Implement packed values here
-                    }
-                }
-            }
+            field.write_to(tag, stream)?;
         }
         Ok(())
     }
@@ -355,9 +344,60 @@ impl Message {
     }
 }
 
-impl Value {
-    fn write_to(
+impl Field {
+    /// Writes a value to a stream
+    pub fn write_to(
         self,
+        tag: u32,
+        stream: &mut protobuf::CodedOutputStream,
+    ) -> protobuf::error::ProtobufResult<()> {
+        match self {
+            Field::Singular(Some(value)) => {
+                value.write_to(tag, stream)?;
+            }
+            Field::Singular(None) => {}
+            Field::Repeated(values) => match values.first() {
+                Some(Value::Bool(_))
+                | Some(Value::I32(_))
+                | Some(Value::I64(_))
+                | Some(Value::S32(_))
+                | Some(Value::S64(_))
+                | Some(Value::U32(_))
+                | Some(Value::U64(_))
+                | Some(Value::F32(_))
+                | Some(Value::F64(_))
+                | Some(Value::SFixed32(_))
+                | Some(Value::SFixed64(_))
+                | Some(Value::Fixed32(_))
+                | Some(Value::Fixed64(_)) => {
+                    values[0].write_tag(tag, stream)?;
+                    for value in values.into_iter() {
+                        value.write_to_raw(stream)?;
+                    }
+                }
+                _ => {
+                    for value in values.into_iter() {
+                        value.write_to(tag, stream)?;
+                    }
+                }
+            },
+        }
+        Ok(())
+    }
+
+    /// Serializes the message into a vetor of bytes
+    pub fn into_vec(self) -> protobuf::error::ProtobufResult<Vec<u8>> {
+        let mut buf = Vec::new();
+        let mut stream = protobuf::CodedOutputStream::vec(&mut buf);
+        self.write_to(0, &mut stream)?;
+        stream.flush()?;
+        Ok(buf)
+    }
+}
+
+impl Value {
+    fn write_tag(
+        &self,
         tag: u32,
         stream: &mut protobuf::CodedOutputStream,
     ) -> protobuf::error::ProtobufResult<()> {
@@ -378,9 +418,21 @@ impl Value {
                 stream.write_tag(tag, wire_format::WireTypeLengthDelimited)?
             }
         };
+        Ok(())
+    }
+
+    /// Writes a value to a stream
+    pub fn write_to(
+        self,
+        tag: u32,
+        stream: &mut protobuf::CodedOutputStream,
+    ) -> protobuf::error::ProtobufResult<()> {
+        self.write_tag(tag, stream)?;
         self.write_to_raw(stream)
     }
-    fn write_to_raw(
+
+    /// Writes a value to a stream without the tag
+    pub fn write_to_raw(
         self,
         stream: &mut protobuf::CodedOutputStream,
     ) -> protobuf::error::ProtobufResult<()> {
