@@ -70,6 +70,7 @@ use crate::error;
 use crate::value;
 use protobuf;
 use serde;
+use serde::forward_to_deserialize_any;
 use std::collections;
 use std::fmt;
 use std::vec;

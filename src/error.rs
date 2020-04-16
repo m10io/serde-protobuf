@@ -3,6 +3,7 @@ use std::error;
 use std::fmt;
 use std::result;
 
+use failure::Fail;
 use protobuf;
 use protobuf::stream::wire_format;
 use serde;
@@ -87,7 +88,6 @@ impl error::Error for CompatError {}
 
 impl From<Error> for CompatError {
     fn from(e: Error) -> Self {
-        use failure::Fail;
         CompatError(e.compat())
     }
 }
@@ -97,7 +97,6 @@ impl serde::de::Error for CompatError {
     where
         T: fmt::Display,
     {
-        use failure::Fail;
         CompatError(
             Error::Custom {
                 message: msg.to_string(),
