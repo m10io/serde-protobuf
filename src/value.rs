@@ -113,6 +113,69 @@ impl Message {
         Ok(())
     }
 
+    /// Merge data from given input stream with a FieldMask
+    #[inline]
+    pub fn merge_from_masked(
+        &mut self,
+        descriptors: &descriptor::Descriptors,
+        message: &descriptor::MessageDescriptor,
+        input: &mut protobuf::CodedInputStream,
+        mask: Vec<&[&str]>,
+    ) -> error::Result<()> {
+        let mut trash_fields = protobuf::UnknownFields::new();
+        while !input.eof()? {
+            let (number, wire_type) = input.read_tag_unpack()?;
+            if let Some(field_desc) = message.field_by_number(number.try_into().map_err(|_| {
+                crate::error::Error::Custom {
+                    message: "field was negative".to_string(),
+                }
+            })?) {
+                if mask.iter().any(|p| p.first() == Some(&field_desc.name())) {
+                    if let Some(field) = message.field_by_number(number as i32) {
+                        let value = self.ensure_field(field);
+                        let new_mask = mask
+                            .iter()
+                            .filter_map(|p| {
+                                if p.len() > 1 && p.first() == Some(&field_desc.name()) {
+                                    Some(&p[1..])
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<Vec<_>>();
+
+                        if new_mask.is_empty() {
+                            value.merge_from(descriptors, field, input, wire_type)?;
+                        } else {
+                            value.merge_from_masked(
+                                descriptors,
+                                field,
+                                input,
+                                wire_type,
+                                Some(new_mask),
+                            )?;
+                        }
+                    } else {
+                        protobuf::rt::read_unknown_or_skip_group(
+                            number,
+                            wire_type,
+                            input,
+                            &mut trash_fields,
+                        )?;
+                    }
+                } else {
+                    protobuf::rt::read_unknown_or_skip_group(
+                        number,
+                        wire_type,
+                        input,
+                        &mut trash_fields,
+                    )?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     #[inline]
     fn ensure_field(&mut self, field: &descriptor::FieldDescriptor) -> &mut Field {
         self.fields
@@ -132,14 +195,17 @@ impl Field {
         }
     }
 
-    /// Merge data from the given input stream into this field.
     #[inline]
-    pub fn merge_from(
+
+    /// Merge data from the given input stream into this field with an optional mask.
+    #[inline]
+    pub fn merge_from_masked(
         &mut self,
         descriptors: &descriptor::Descriptors,
         field: &descriptor::FieldDescriptor,
         input: &mut protobuf::CodedInputStream,
         wire_type: protobuf::stream::wire_format::WireType,
+        mask: Option<Vec<&[&str]>>,
     ) -> error::Result<()> {
         // Make the type dispatch below more compact
         use crate::descriptor::FieldType::*;
@@ -193,11 +259,29 @@ impl Field {
             Bytes => ss!(WireTypeLengthDelimited, Value::Bytes, I::read_bytes),
             String => ss!(WireTypeLengthDelimited, Value::String, I::read_string),
             Enum(_) => self.merge_enum(input, wire_type),
-            Message(ref m) => self.merge_message(input, descriptors, m, wire_type),
+            Message(ref m) => {
+                if let Some(mask) = mask {
+                    self.merge_message_masked(input, descriptors, m, wire_type, mask)
+                } else {
+                    self.merge_message(input, descriptors, m, wire_type)
+                }
+            }
             Group => unimplemented!(),
             UnresolvedEnum(e) => Err(error::Error::UnknownEnum { name: e.to_owned() }),
             UnresolvedMessage(m) => Err(error::Error::UnknownMessage { name: m.to_owned() }),
         }
+    }
+
+    /// Merge data from the given input stream into this field.
+    #[inline]
+    pub fn merge_from(
+        &mut self,
+        descriptors: &descriptor::Descriptors,
+        field: &descriptor::FieldDescriptor,
+        input: &mut protobuf::CodedInputStream,
+        wire_type: protobuf::stream::wire_format::WireType,
+    ) -> error::Result<()> {
+        self.merge_from_masked(descriptors, field, input, wire_type, None)
     }
 
     #[inline]
@@ -309,6 +393,41 @@ impl Field {
     }
 
     #[inline]
+    fn merge_message_masked(
+        &mut self,
+        input: &mut protobuf::CodedInputStream,
+        descriptors: &descriptor::Descriptors,
+        message: &descriptor::MessageDescriptor,
+        actual_wire_type: wire_format::WireType,
+        mask: Vec<&[&str]>,
+    ) -> error::Result<()> {
+        if wire_format::WireType::WireTypeLengthDelimited == actual_wire_type {
+            let len = input.read_raw_varint64()?;
+            let mut msg = match *self {
+                Field::Singular(ref mut o) => {
+                    if let Some(Value::Message(m)) = o.take() {
+                        m
+                    } else {
+                        Message::new(message.clone())
+                    }
+                }
+                _ => Message::new(message.clone()),
+            };
+
+            let old_limit = input.push_limit(len)?;
+            msg.merge_from_masked(descriptors, message, input, mask)?;
+            input.pop_limit(old_limit);
+
+            self.put(Value::Message(msg));
+            Ok(())
+        } else {
+            Err(error::Error::BadWireType {
+                wire_type: actual_wire_type,
+            })
+        }
+    }
+
+    #[inline]
     fn put(&mut self, value: Value) {
         match *self {
             Field::Singular(ref mut s) => *s = Some(value),
@@ -389,7 +508,7 @@ impl Field {
     pub fn into_vec(self) -> protobuf::error::ProtobufResult<Vec<u8>> {
         let mut buf = Vec::new();
         let mut stream = protobuf::CodedOutputStream::vec(&mut buf);
-        self.write_to(0, &mut stream)?;
+        self.write_to(1, &mut stream)?;
         stream.flush()?;
         Ok(buf)
     }
