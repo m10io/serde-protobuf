@@ -577,3 +577,20 @@ impl Value {
         Ok(())
     }
 }
+
+impl std::fmt::Display for Message {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut f = f.debug_struct(self.descriptor.name());
+        self.descriptor.fields()
+            .iter()
+            .fold(&mut f, |f, field_desc| {
+                if let Some(field) = self.fields.get(&field_desc.number()) {
+                    f.field(field_desc.name(), &field)
+                }else{
+                    f
+                }
+            })
+            .finish()
+    }
+}
+
